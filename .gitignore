@@ -1,0 +1,36 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+*.lock
+!pubspec.lock
+
+# Generated code
+*.g.dart
+*.freezed.dart
+
+# Env & secrets — never commit
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+key.properties
+ios/Runner/GoogleService-Info.plist
+android/app/google-services.json
+
+# iOS / Android build
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+android/.gradle/
+android/local.properties
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
