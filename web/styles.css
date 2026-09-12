@@ -1,0 +1,300 @@
+/*
+ * Restrained on purpose.
+ *
+ * The premium visual identity is the final phase of the project; this
+ * stylesheet only makes the end-to-end flow legible and usable so the
+ * behaviour can be judged without the design distracting from it.
+ */
+
+:root {
+  --bg: #0e1116;
+  --surface: #171b22;
+  --surface-2: #1f242d;
+  --text: #f2f3f5;
+  --muted: #9aa3ad;
+  --accent: #7fd8c4;
+  --danger: #ff6b6b;
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  padding-bottom: 46px;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.wordmark {
+  font-size: 44px;
+  letter-spacing: 0.06em;
+  font-weight: 300;
+}
+
+.tagline {
+  font-size: 19px;
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0;
+}
+
+.loading {
+  color: var(--muted);
+}
+
+/* --- form ---------------------------------------------------------------- */
+
+label {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: -8px;
+}
+
+input {
+  background: var(--surface);
+  border: 1px solid #2a303a;
+  color: var(--text);
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: transform 0.08s ease;
+}
+
+button:active {
+  transform: scale(0.99);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: var(--accent);
+  color: #06231d;
+  font-weight: 600;
+  padding: 14px 18px;
+  margin-top: 8px;
+}
+
+.secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: #2a303a;
+  padding: 10px 14px;
+}
+
+.error {
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid var(--danger);
+  color: #ffc9c9;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+/* --- onboarding ---------------------------------------------------------- */
+
+.progress {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 2px solid #262c36;
+  color: var(--text);
+  padding: 12px;
+  text-align: left;
+}
+
+.option.selected {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.option .swatch {
+  width: 100%;
+  height: 74px;
+  border-radius: 8px;
+}
+
+.option-label {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* --- profile ------------------------------------------------------------- */
+
+.completeness {
+  font-size: 15px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tastes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.taste {
+  display: grid;
+  grid-template-columns: 110px 1fr 44px;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.taste-name {
+  color: var(--muted);
+}
+
+.bar {
+  background: var(--surface-2);
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.taste-score {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- feed ---------------------------------------------------------------- */
+
+.feed {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid #232932;
+}
+
+.card-media {
+  height: 150px;
+  position: relative;
+}
+
+.badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+
+.card-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.reason {
+  color: var(--accent);
+  font-size: 14px;
+  margin: 0;
+}
+
+.tags {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+/* --- status bar ---------------------------------------------------------- */
+
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  background: #080a0e;
+  border-top: 1px solid #1d232b;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status.ok {
+  color: var(--accent);
+}
+
+.status.bad {
+  color: var(--danger);
+}

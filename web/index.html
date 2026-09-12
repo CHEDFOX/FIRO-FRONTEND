@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Firo</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%237fd8c4'/></svg>"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!--
+      A deliberately plain end-to-end client.
+
+      The premium visual design is the LAST phase of the project; this exists to
+      prove the whole journey works against the real backend:
+        sign up -> onboarding taste picker -> seeded Explorer DNA -> personal feed.
+      Structure and behaviour are real; the styling is intentionally restrained.
+    -->
+    <main id="app" class="app">
+      <div class="loading">Loading…</div>
+    </main>
+
+    <footer class="status-bar">
+      <span id="api-status" class="status">connecting…</span>
+      <span id="step-label" class="status-right"></span>
+    </footer>
+
+    <script src="./api.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
