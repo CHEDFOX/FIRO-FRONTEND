@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- This console shows every account's data. Keep it out of search results. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Firo — Console</title>
+    <link rel="stylesheet" href="admin.css" />
+  </head>
+  <body>
+    <!-- Sign in ---------------------------------------------------------- -->
+    <section id="login" class="login" hidden>
+      <form id="login-form" class="login-card">
+        <h1 class="wordmark">firo</h1>
+        <p class="muted">Operator console</p>
+
+        <label for="login-base">API</label>
+        <input id="login-base" type="url" autocomplete="off" spellcheck="false" />
+
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" autocomplete="username" required />
+
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+
+        <button type="submit" class="primary">Sign in</button>
+        <p id="login-error" class="error" hidden></p>
+        <p class="muted small">
+          Requires an account with the <code>admin</code> role.
+        </p>
+      </form>
+    </section>
+
+    <!-- Console ---------------------------------------------------------- -->
+    <div id="console" class="console" hidden>
+      <header class="topbar">
+        <span class="wordmark small">firo</span>
+        <nav class="tabs">
+          <a href="#/overview" data-tab="overview">Overview</a>
+          <a href="#/users" data-tab="users">Users</a>
+          <a href="#/content" data-tab="content">Content</a>
+          <a href="#/map" data-tab="map">Map</a>
+          <a href="#/live" data-tab="live">Live</a>
+          <a href="#/audit" data-tab="audit">Audit</a>
+        </nav>
+        <div class="topbar-right">
+          <span id="whoami" class="muted small"></span>
+          <button id="sign-out" class="ghost small">Sign out</button>
+        </div>
+      </header>
+
+      <main id="view" class="view"></main>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="world-land.js"></script>
+    <script src="admin-api.js"></script>
+    <script src="admin-ui.js"></script>
+    <script src="admin.js"></script>
+  </body>
+</html>
