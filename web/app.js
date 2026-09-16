@@ -268,13 +268,69 @@
     ]);
   }
 
+  /**
+   * The image on a card.
+   *
+   * The dominant colour is painted as the background FIRST and the photograph
+   * loads over it, so a slow connection shows a colour drawn from the image
+   * itself rather than a grey hole. `srcset` lets the browser pick a width —
+   * a phone has no business downloading the 1600px copy.
+   */
+  function cardMedia(exp, isWildcard) {
+    const ref = exp.media && exp.media[0];
+    const color = (ref && ref.dominantColor) || placeholderColor(exp.id);
+    const children = [isWildcard ? el('span', { class: 'badge', text: 'a little different' }) : null];
+
+    if (ref && ref.url) {
+      const img = el('img', {
+        src: ref.url,
+        alt: ref.alt || exp.title,
+        loading: 'lazy',
+        decoding: 'async',
+      });
+      if (ref.variants && ref.variants.length > 1) {
+        img.setAttribute(
+          'srcset',
+          ref.variants
+            .map(function (variant) {
+              return variant.url + ' ' + variant.width + 'w';
+            })
+            .join(', '),
+        );
+        // Cards are full width on a phone and roughly a third on a wide screen.
+        img.setAttribute('sizes', '(max-width: 700px) 100vw, 33vw');
+      }
+      // A broken URL should leave the colour block, not a browser error icon.
+      img.addEventListener('error', function () {
+        img.remove();
+      });
+      children.push(img);
+    }
+
+    return el('div', { class: 'card-media', style: 'background:' + color }, children);
+  }
+
+  /**
+   * A stable colour for an experience that has no photograph yet.
+   *
+   * Derived from the id, so a card looks deliberate and keeps the same colour
+   * across reloads instead of being an identical grey hole. Kept dark and
+   * desaturated so it reads as "awaiting a photograph" rather than as a design
+   * choice — the catalogue's real images are uploaded through the console.
+   */
+  function placeholderColor(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = (hash * 31 + id.charCodeAt(i)) % 360;
+    }
+    return 'hsl(' + hash + ', 18%, 17%)';
+  }
+
   function feedScreen() {
     const cards = state.feed.map(function (item) {
       const exp = item.experience;
       return el('article', { class: 'card', 'data-experience': exp.id }, [
-        el('div', { class: 'card-media', style: 'background:' + (exp.media[0] ? exp.media[0].dominantColor : '#333') }, [
-          item.isWildcard ? el('span', { class: 'badge', text: 'a little different' }) : null,
-        ]),
+        cardMedia(exp, item.isWildcard),
         el('div', { class: 'card-body' }, [
           el('h3', { text: exp.title }),
           el('p', { class: 'muted', text: exp.summary }),

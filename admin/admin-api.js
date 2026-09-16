@@ -165,6 +165,52 @@
       return this.request('/v1/admin/content/' + encodeURIComponent(id), { method: 'DELETE' });
     },
 
+    /**
+     * Uploads one image.
+     *
+     * FormData rather than JSON, and the Content-Type header is deliberately
+     * NOT set: the browser has to add its own multipart boundary, and setting
+     * it by hand produces a body the server cannot parse.
+     */
+    async uploadImage(file, meta) {
+      const form = new FormData();
+      form.append('file', file);
+      if (meta && meta.alt) {
+        form.append('alt', meta.alt);
+      }
+      if (meta && meta.attribution) {
+        form.append('attribution', meta.attribution);
+      }
+
+      const response = await fetch(this.baseUrl + '/v1/admin/media', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + this.accessToken },
+        body: form,
+      });
+
+      const payload = await response.json().catch(function () {
+        return null;
+      });
+      if (!response.ok) {
+        const err = (payload && payload.error) || {};
+        throw new ApiError(
+          err.code || 'api.error',
+          err.message || 'Upload failed (' + response.status + ')',
+          response.status,
+          err.details || null,
+        );
+      }
+      return payload.data;
+    },
+
+    mediaLibrary(params) {
+      return this.request('/v1/admin/media?' + query(params || { limit: 50 }));
+    },
+
+    deleteImage(id) {
+      return this.request('/v1/admin/media/' + encodeURIComponent(id), { method: 'DELETE' });
+    },
+
     places() {
       return this.request('/v1/admin/places');
     },

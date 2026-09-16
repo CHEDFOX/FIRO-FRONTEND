@@ -576,6 +576,107 @@
       return el('label', { class: 'check' }, [box, el('span', { text: label })]);
     });
 
+    /**
+     * Choose a photograph.
+     *
+     * The uploaded asset is held in `chosen` and written into the experience's
+     * media array on save — so uploading is not the same as publishing, and
+     * abandoning the form leaves an unused asset rather than a half-edited
+     * card.
+     */
+    let chosen = existing && existing.media && existing.media[0] ? existing.media[0] : null;
+
+    /** The alt text currently in the form, falling back to the asset's own. */
+    let altOf = function (asset) {
+      return asset && asset.alt ? asset.alt : '';
+    };
+
+    function imagePicker(current) {
+      void current;
+      const preview = el('div', { class: 'image-preview' });
+      const status = el('p', { class: 'muted small' });
+      const input = el('input', { type: 'file', accept: 'image/*', id: 'f-image' });
+      const altInput = el('input', {
+        id: 'f-alt',
+        placeholder: 'What is in the picture (for screen readers)',
+        value: chosen && chosen.alt ? chosen.alt : '',
+      });
+
+      function paint() {
+        preview.replaceChildren();
+        if (!chosen || !chosen.url) {
+          preview.appendChild(el('div', { class: 'image-empty', text: 'No image yet' }));
+          return;
+        }
+        preview.appendChild(
+          el('div', { class: 'image-frame', style: 'background:' + (chosen.dominantColor || '#222') }, [
+            el('img', { src: chosen.url, alt: chosen.alt || '' }),
+          ]),
+        );
+        preview.appendChild(
+          el('div', { class: 'image-meta' }, [
+            el('span', { class: 'muted small', text: chosen.width + '×' + chosen.height }),
+            chosen.dominantColor
+              ? el('span', { class: 'swatch', style: 'background:' + chosen.dominantColor, title: chosen.dominantColor })
+              : null,
+            el('button', {
+              type: 'button',
+              class: 'ghost small',
+              text: 'Remove',
+              onclick: function () {
+                chosen = null;
+                paint();
+              },
+            }),
+          ]),
+        );
+      }
+
+      altOf = function (asset) {
+        return altInput.value.trim() || (asset && asset.alt) || '';
+      };
+
+      input.addEventListener('change', async function () {
+        const file = input.files && input.files[0];
+        if (!file) {
+          return;
+        }
+        input.disabled = true;
+        status.className = 'muted small';
+        status.textContent = 'Uploading ' + (file.size / 1048576).toFixed(1) + 'MB…';
+        try {
+          const result = await api.uploadImage(file, { alt: altInput.value.trim() });
+          chosen = result.media;
+          altInput.value = result.media.alt || altInput.value;
+          status.textContent = result.deduped
+            ? 'Already in the library — reused it instead of storing a second copy.'
+            : 'Uploaded. ' + result.media.variants.length + ' sizes generated.';
+          paint();
+        } catch (error) {
+          status.className = 'error small';
+          status.textContent = describe(error);
+        } finally {
+          input.disabled = false;
+          input.value = '';
+        }
+      });
+
+      paint();
+
+      return el('div', { class: 'field' }, [
+        el('label', { text: 'Photograph', for: 'f-image' }),
+        el('p', {
+          class: 'muted small',
+          text: 'The image IS the product here — a card without one cannot inspire anyone. At least 800×600; it is resized and re-encoded on upload.',
+        }),
+        preview,
+        input,
+        status,
+        el('label', { text: 'Alt text', for: 'f-alt' }),
+        altInput,
+      ]);
+    }
+
     form.append(
       el('h2', { text: existing ? 'Edit experience' : 'New experience' }),
       existing ? el('p', { class: 'muted small', text: existing.id }) : null,
@@ -688,12 +789,7 @@
         ),
       ]),
 
-      field(
-        'mediaUrl',
-        'Image URL',
-        textInput('mediaUrl', existing && existing.media[0] ? existing.media[0].url : '', { type: 'url' }),
-        'Optional. One image for now; the media pipeline lands later.',
-      ),
+      imagePicker(existing),
 
       el('p', { class: 'error', id: 'form-error', hidden: true }),
 
@@ -748,7 +844,6 @@
           return Number(box.value);
         });
 
-      const mediaUrl = fields.mediaUrl.value.trim();
       const body = {
         placeId: fields.placeId.value,
         slug: fields.slug.value.trim(),
@@ -762,8 +857,23 @@
         wowScore: Number(fields.wowScore.value),
         hiddenGemScore: Number(fields.hiddenGemScore.value),
         status: fields.status.value,
-        media: mediaUrl
-          ? [{ id: 'img_' + fields.slug.value.trim(), url: mediaUrl, dominantColor: null, width: null, height: null, attribution: null }]
+        // Whatever was uploaded (or was already attached), trimmed to the
+        // fields the catalogue stores.
+        // Pass the whole reference through, variants included: dropping them
+        // means every phone downloads the desktop-sized file.
+        media: chosen
+          ? [
+              {
+                id: chosen.id,
+                url: chosen.url,
+                dominantColor: chosen.dominantColor || null,
+                width: chosen.width || null,
+                height: chosen.height || null,
+                attribution: chosen.attribution || null,
+                alt: altOf(chosen) || null,
+                variants: chosen.variants || undefined,
+              },
+            ]
           : [],
       };
 

@@ -240,8 +240,31 @@ button:disabled {
 }
 
 .card-media {
-  height: 150px;
+  /* Taller than it was: this is a travel app, and the photograph is the
+     product. 4:3 rather than a fixed height so it scales with the card. */
+  aspect-ratio: 4 / 3;
   position: relative;
+  overflow: hidden;
+}
+
+.card-media img {
+  width: 100%;
+  height: 100%;
+  /* Cover, so a portrait photo fills the frame instead of letterboxing —
+     the colour behind it is a fallback, not part of the composition. */
+  object-fit: cover;
+  display: block;
+  /* Fade in over the dominant colour rather than snapping. */
+  animation: image-in 0.4s ease-out;
+}
+
+@keyframes image-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .badge {
