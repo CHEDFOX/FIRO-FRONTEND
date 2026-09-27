@@ -1,293 +1,208 @@
 /**
- * The end-to-end journey: welcome -> sign up -> onboarding -> DNA -> feed.
+ * Firo — one place a day.
  *
- * Deliberately a small state machine with no framework, because the point of
- * this client is to prove the backend flow works, not to be the final app.
- * The premium UI is the last phase of the project.
+ *   first visit   Open → four choices → Forming → When → Keep → Today
+ *   every day     Arrive → Today → (Linger) → Days / World
+ *
+ * Nothing is asked before something is shown. The account is created on the
+ * first tap as a guest, so onboarding answers have an owner, and claiming it
+ * later ("Keep your DNA?") changes nothing but the sign-in: same id, same
+ * profile, same days.
+ *
+ * The server owns the words (greeting, reason, the month's sentence, the
+ * world's question); this file renders them.
  */
 (function () {
   'use strict';
 
   const api = window.firoApi;
-  const app = document.getElementById('app');
-  const apiStatus = document.getElementById('api-status');
-  const stepLabel = document.getElementById('step-label');
+  const drawLandscape = window.firoLandscape;
+  const root = document.getElementById('app');
 
-  // A session id lets the backend apply short-term "right now" intent on top of
-  // long-term taste.
-  const sessionId = 'web-' + Math.random().toString(36).slice(2, 10);
+  const TIME_ZONE = (function () {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch (error) {
+      return 'UTC';
+    }
+  })();
+
+  const SESSION_ID = 'web-' + Math.random().toString(36).slice(2, 10);
+  const NUMBER_WORDS = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
+  const ARRIVED_KEY = 'firo.arrivedOn';
+  // Someone who skips all four questions has no profile yet, but has still
+  // been through onboarding; they should not be asked again on every visit.
+  const ONBOARDED_KEY = 'firo.onboarded';
 
   const state = {
-    screen: 'welcome',
+    screen: 'loading',
+    user: null,
     flow: null,
     stepIndex: 0,
     answers: {},
-    profile: null,
-    feed: [],
-    user: null,
+    sketch: [],
+    sketchTags: [],
+    today: null,
+    reveal: false,
+    days: null,
+    month: null,
+    world: null,
+    rhythm: null,
+    linger: null,
+    returnTo: null,
     error: null,
     busy: false,
-    // Saved ids live in state rather than being written onto the button, because
-    // every setState re-renders and would discard a directly mutated node.
-    savedIds: [],
   };
 
-  // --- helpers ---------------------------------------------------------------
+  // ---------------------------------------------------------------- helpers --
 
   function el(tag, attrs, children) {
     const node = document.createElement(tag);
-    Object.entries(attrs || {}).forEach(function (entry) {
-      const key = entry[0];
-      const value = entry[1];
-      if (key === 'class') node.className = value;
-      else if (key === 'text') node.textContent = value;
-      else if (key.startsWith('on')) node.addEventListener(key.slice(2).toLowerCase(), value);
-      else if (value !== null && value !== undefined) node.setAttribute(key, String(value));
+    Object.keys(attrs || {}).forEach(function (key) {
+      const value = attrs[key];
+      if (value === null || value === undefined || value === false) {
+        return;
+      }
+      if (key === 'class') {
+        node.className = value;
+      } else if (key === 'text') {
+        node.textContent = value;
+      } else if (key === 'html') {
+        node.innerHTML = value;
+      } else if (key.indexOf('on') === 0 && typeof value === 'function') {
+        node.addEventListener(key.slice(2).toLowerCase(), value);
+      } else {
+        node.setAttribute(key, value === true ? '' : String(value));
+      }
     });
-    (children || []).forEach(function (child) {
-      if (child) node.appendChild(child);
-    });
+    append(node, children);
     return node;
   }
 
-  function setState(patch) {
-    Object.assign(state, patch);
-    render();
+  function append(node, children) {
+    if (children === null || children === undefined || children === false) {
+      return;
+    }
+    if (Array.isArray(children)) {
+      children.forEach(function (child) {
+        append(node, child);
+      });
+      return;
+    }
+    node.appendChild(typeof children === 'string' ? document.createTextNode(children) : children);
   }
 
-  async function guard(fn) {
-    if (state.busy) return;
-    setState({ busy: true, error: null });
+  function readStore(key) {
     try {
-      await fn();
+      return localStorage.getItem(key);
     } catch (error) {
-      const message =
-        error && error.code === 'network.unreachable'
-          ? 'Cannot reach the Firo API. Is the backend running?'
-          : (error && error.message) || 'Something went wrong.';
-      setState({ error: message });
-    } finally {
-      setState({ busy: false });
+      return null;
     }
   }
 
-  function errorBanner() {
-    if (!state.error) return null;
-    return el('div', { class: 'error', text: state.error, role: 'alert' });
-  }
-
-  // --- screens ---------------------------------------------------------------
-
-  function welcomeScreen() {
-    return el('section', { class: 'screen welcome' }, [
-      el('h1', { class: 'wordmark', text: 'Firo' }),
-      el('p', {
-        class: 'tagline',
-        text: 'Discover places that feel made for you.',
-      }),
-      el('p', { class: 'muted', text: 'Inspire first. Plan second. Book last.' }),
-      errorBanner(),
-      el('button', {
-        class: 'primary',
-        id: 'btn-start',
-        text: 'Get started',
-        onclick: function () {
-          setState({ screen: 'signup' });
-        },
-      }),
-    ]);
-  }
-
-  function signupScreen() {
-    // A throwaway identity keeps the demo one click long while still exercising
-    // the real registration endpoint.
-    const suffix = Math.random().toString(36).slice(2, 8);
-    const emailInput = el('input', {
-      id: 'email',
-      type: 'email',
-      value: 'explorer_' + suffix + '@firo.app',
-      autocomplete: 'email',
-    });
-    const handleInput = el('input', {
-      id: 'handle',
-      type: 'text',
-      value: 'explorer_' + suffix,
-      autocomplete: 'username',
-    });
-    const passwordInput = el('input', {
-      id: 'password',
-      type: 'password',
-      value: 'sup3r-secret-pw',
-      autocomplete: 'new-password',
-    });
-
-    function submit() {
-      guard(async function () {
-        const result = await api.register({
-          email: emailInput.value.trim(),
-          handle: handleInput.value.trim(),
-          password: passwordInput.value,
-        });
-        api.setTokens(result.tokens);
-        const flow = await api.onboardingFlow();
-        setState({ user: result.user, flow: flow, stepIndex: 0, answers: {}, screen: 'onboarding' });
-      });
+  function writeStore(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (error) {
+      /* a remembered arrival is a nicety, not a requirement */
     }
-
-    return el('section', { class: 'screen' }, [
-      el('h2', { text: 'Create your account' }),
-      el('p', { class: 'muted', text: 'Pre-filled so you can move straight through.' }),
-      errorBanner(),
-      el('label', { text: 'Email', for: 'email' }),
-      emailInput,
-      el('label', { text: 'Handle', for: 'handle' }),
-      handleInput,
-      el('label', { text: 'Password', for: 'password' }),
-      passwordInput,
-      el('button', {
-        class: 'primary',
-        id: 'btn-signup',
-        text: state.busy ? 'Creating…' : 'Continue',
-        onclick: submit,
-      }),
-    ]);
   }
 
-  function onboardingScreen() {
-    const step = state.flow.steps[state.stepIndex];
-    const selected = state.answers[step.id] || [];
-    const isLast = state.stepIndex === state.flow.steps.length - 1;
-    const canContinue = selected.length >= step.minSelect;
-
-    function toggle(optionId) {
-      const current = state.answers[step.id] || [];
-      let next;
-      if (step.type === 'either_or') {
-        next = [optionId]; // a forced choice replaces rather than accumulates
-      } else if (current.indexOf(optionId) >= 0) {
-        next = current.filter(function (id) {
-          return id !== optionId;
-        });
-      } else {
-        next = current.concat([optionId]);
-      }
-      const answers = Object.assign({}, state.answers);
-      answers[step.id] = next;
-      setState({ answers: answers });
-    }
-
-    function next() {
-      if (!canContinue) return;
-      if (!isLast) {
-        setState({ stepIndex: state.stepIndex + 1 });
-        return;
-      }
-      guard(async function () {
-        const answers = state.flow.steps
-          .filter(function (s) {
-            return (state.answers[s.id] || []).length > 0;
-          })
-          .map(function (s) {
-            return { stepId: s.id, selectedOptionIds: state.answers[s.id] };
-          });
-        const result = await api.submitOnboarding(answers);
-        const feed = await api.feed(12, sessionId);
-        setState({ profile: result.profile, feed: feed, screen: 'profile' });
-      });
-    }
-
-    const cards = step.options.map(function (option) {
-      const isOn = selected.indexOf(option.id) >= 0;
-      return el(
-        'button',
-        {
-          class: 'option' + (isOn ? ' selected' : ''),
-          'data-option': option.id,
-          'aria-pressed': isOn ? 'true' : 'false',
-          onclick: function () {
-            toggle(option.id);
-          },
-        },
-        [
-          el('span', { class: 'swatch', style: 'background:' + option.dominantColor }),
-          el('span', { class: 'option-label', text: option.label }),
-        ],
-      );
-    });
-
-    return el('section', { class: 'screen' }, [
-      el('div', {
-        class: 'progress',
-        text: 'Step ' + (state.stepIndex + 1) + ' of ' + state.flow.steps.length,
-      }),
-      el('h2', { text: step.title }),
-      step.subtitle ? el('p', { class: 'muted', text: step.subtitle }) : null,
-      errorBanner(),
-      el('div', { class: 'options' }, cards),
-      el('button', {
-        class: 'primary',
-        id: 'btn-next',
-        text: state.busy ? 'Saving…' : isLast ? 'Show me' : 'Continue',
-        disabled: canContinue ? null : 'disabled',
-        onclick: next,
-      }),
-    ]);
+  function localDay() {
+    return dayIn(new Date().toISOString());
   }
 
-  function profileScreen() {
-    const profile = state.profile;
-    const pct = Math.round((profile.completeness || 0) * 100);
+  function timeOfDayNow() {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 11) return 'morning';
+    if (hour >= 11 && hour < 17) return 'day';
+    if (hour >= 17 && hour < 22) return 'evening';
+    return 'night';
+  }
 
-    const bars = (profile.topTastes || []).map(function (taste) {
-      return el('div', { class: 'taste' }, [
-        el('span', { class: 'taste-name', text: taste.tag }),
-        el('span', { class: 'bar' }, [
-          el('span', {
-            class: 'bar-fill',
-            style: 'width:' + Math.round(Math.max(0, taste.score) * 100) + '%',
-          }),
-        ]),
-        el('span', { class: 'taste-score', text: taste.score.toFixed(2) }),
-      ]);
-    });
+  function setTimeOfDay(value) {
+    document.body.dataset.tod = value || timeOfDayNow();
+    const ground = document.body.dataset.tod === 'evening' || document.body.dataset.tod === 'night'
+      ? '#06070b'
+      : '#0b0a09';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute('content', ground);
+    }
+  }
 
-    return el('section', { class: 'screen' }, [
-      el('h2', { text: 'This is your Explorer DNA' }),
-      el('p', { class: 'muted', text: 'Built from what you just picked. It keeps learning as you explore.' }),
-      el('div', { class: 'completeness', id: 'completeness', text: pct + '% complete' }),
-      errorBanner(),
-      el('div', { class: 'tastes' }, bars.length ? bars : [el('p', { class: 'muted', text: 'Still learning…' })]),
-      el('button', {
-        class: 'primary',
-        id: 'btn-feed',
-        text: 'See what we found for you',
-        onclick: function () {
-          setState({ screen: 'feed' });
-        },
-      }),
-    ]);
+  function arrivalLine(day) {
+    const date = new Date(day + 'T12:00:00Z');
+    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long', timeZone: 'UTC' }).format(date);
+    const dayMonth = new Intl.DateTimeFormat(undefined, {
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(date);
+    return weekday + ' · ' + dayMonth;
+  }
+
+  /** The user's calendar day for an ISO timestamp. */
+  function dayIn(iso) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(iso));
+  }
+
+  function shortDate(day) {
+    return new Intl.DateTimeFormat(undefined, {
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'UTC',
+    }).format(new Date(day + 'T12:00:00Z'));
+  }
+
+  function monthName(month) {
+    return new Intl.DateTimeFormat(undefined, { month: 'long', timeZone: 'UTC' }).format(
+      new Date(month + '-01T12:00:00Z'),
+    );
+  }
+
+  function shiftMonth(month, delta) {
+    const date = new Date(month + '-01T12:00:00Z');
+    date.setUTCMonth(date.getUTCMonth() + delta);
+    return date.toISOString().slice(0, 7);
+  }
+
+  function placeLine(place) {
+    if (!place) return '';
+    return [place.name, place.region, place.country]
+      .filter(function (part, index, all) {
+        return part && all.indexOf(part) === index;
+      })
+      .join(' · ');
+  }
+
+  function words(tags) {
+    return (tags || [])
+      .slice(0, 3)
+      .map(function (tag) {
+        return tag.replace(/_/g, ' ');
+      })
+      .join(' · ');
   }
 
   /**
-   * The image on a card.
-   *
-   * The dominant colour is painted as the background FIRST and the photograph
-   * loads over it, so a slow connection shows a colour drawn from the image
-   * itself rather than a grey hole. `srcset` lets the browser pick a width —
-   * a phone has no business downloading the 1600px copy.
+   * The picture for a place: the photograph when there is one, drawn over its
+   * own dominant colour so a slow network shows the right colour rather than
+   * a grey hole; otherwise a drawn landscape from the place's tags.
    */
-  function cardMedia(exp, isWildcard) {
-    const ref = exp.media && exp.media[0];
-    const color = (ref && ref.dominantColor) || placeholderColor(exp.id);
-    const children = [isWildcard ? el('span', { class: 'badge', text: 'a little different' }) : null];
-
+  function scene(media, key, tags, extraClass) {
+    const node = el('div', { class: 'scene' + (extraClass ? ' ' + extraClass : '') });
+    const ref = media && (media.url ? media : media[0]);
     if (ref && ref.url) {
-      const img = el('img', {
-        src: ref.url,
-        alt: ref.alt || exp.title,
-        loading: 'lazy',
-        decoding: 'async',
-      });
+      if (ref.dominantColor) {
+        node.style.background = ref.dominantColor;
+      }
+      const img = el('img', { src: ref.url, alt: ref.alt || '', decoding: 'async' });
       if (ref.variants && ref.variants.length > 1) {
         img.setAttribute(
           'srcset',
@@ -297,110 +212,934 @@
             })
             .join(', '),
         );
-        // Cards are full width on a phone and roughly a third on a wide screen.
-        img.setAttribute('sizes', '(max-width: 700px) 100vw, 33vw');
+        img.setAttribute('sizes', '(max-width: 480px) 100vw, 480px');
       }
-      // A broken URL should leave the colour block, not a browser error icon.
       img.addEventListener('error', function () {
         img.remove();
+        node.insertAdjacentHTML('afterbegin', drawLandscape(key, tags));
       });
-      children.push(img);
+      node.appendChild(img);
+    } else {
+      node.innerHTML = drawLandscape(key, tags);
     }
-
-    return el('div', { class: 'card-media', style: 'background:' + color }, children);
+    return node;
   }
 
-  /**
-   * A stable colour for an experience that has no photograph yet.
-   *
-   * Derived from the id, so a card looks deliberate and keeps the same colour
-   * across reloads instead of being an identical grey hole. Kept dark and
-   * desaturated so it reads as "awaiting a photograph" rather than as a design
-   * choice — the catalogue's real images are uploaded through the console.
-   */
-  function placeholderColor(id) {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = (hash * 31 + id.charCodeAt(i)) % 360;
-    }
-    return 'hsl(' + hash + ', 18%, 17%)';
+  function go(screen, patch) {
+    Object.assign(state, patch || {}, { screen: screen, error: patch && patch.error ? patch.error : null });
+    render();
   }
 
-  function feedScreen() {
-    const cards = state.feed.map(function (item) {
-      const exp = item.experience;
-      return el('article', { class: 'card', 'data-experience': exp.id }, [
-        cardMedia(exp, item.isWildcard),
-        el('div', { class: 'card-body' }, [
-          el('h3', { text: exp.title }),
-          el('p', { class: 'muted', text: exp.summary }),
-          item.reason ? el('p', { class: 'reason', text: item.reason }) : null,
-          el('div', { class: 'tags', text: exp.tags.slice(0, 4).join(' · ') }),
-          (function () {
-            const isSaved = state.savedIds.indexOf(exp.id) >= 0;
-            return el('button', {
-              class: 'secondary save-btn' + (isSaved ? ' saved' : ''),
-              'data-save': exp.id,
-              text: isSaved ? 'Saved ✓' : 'Save',
-              disabled: isSaved ? 'disabled' : null,
-              onclick: function () {
-                guard(async function () {
-                  await api.save(exp.id);
-                  // Saving is also the strongest taste signal we have.
-                  await api.signal('save', exp.id, { sessionId: sessionId });
-                  setState({ savedIds: state.savedIds.concat([exp.id]) });
-                });
-              },
-            });
-          })(),
+  function render() {
+    const screens = {
+      loading: loadingScreen,
+      open: openScreen,
+      signin: signInScreen,
+      onboarding: onboardingScreen,
+      forming: formingScreen,
+      when: whenScreen,
+      keep: keepScreen,
+      arrive: arriveScreen,
+      today: todayScreen,
+      linger: lingerScreen,
+      days: daysScreen,
+      world: worldScreen,
+      empty: emptyScreen,
+      error: errorScreen,
+    };
+    const build = screens[state.screen] || errorScreen;
+    root.replaceChildren(build());
+    window.scrollTo(0, 0);
+  }
+
+  function nav(current) {
+    function item(key, label) {
+      return el('button', {
+        type: 'button',
+        text: label,
+        'aria-current': current === key ? 'page' : null,
+        onclick: function () {
+          if (key === 'today') showToday(false);
+          if (key === 'days') showDays(null);
+          if (key === 'world') showWorld();
+        },
+      });
+    }
+    return el('nav', { class: 'nav', 'aria-label': 'Firo' }, [
+      item('today', 'today'),
+      item('days', 'days'),
+      item('world', 'world'),
+    ]);
+  }
+
+  // ------------------------------------------------------------- lifecycle --
+
+  async function boot() {
+    setTimeOfDay(timeOfDayNow());
+    if (!api.hasSession) {
+      return go('open');
+    }
+    try {
+      state.user = await api.me();
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) {
+        api.setTokens(null);
+        return go('open');
+      }
+      return go('error', { error: error.message });
+    }
+    try {
+      const dna = await api.dna();
+      if ((!dna || dna.signalCount === 0) && readStore(ONBOARDED_KEY) !== state.user.id) {
+        return startOnboarding();
+      }
+      await showToday(true);
+    } catch (error) {
+      go('error', { error: error.message });
+    }
+  }
+
+  async function startOnboarding() {
+    try {
+      const flow = await api.onboardingFlow();
+      go('onboarding', { flow: flow, stepIndex: 0, answers: {} });
+    } catch (error) {
+      go('error', { error: error.message });
+    }
+  }
+
+  /** `fromBoot`: decide between Arrive and Today by whether today was seen. */
+  async function showToday(fromBoot) {
+    try {
+      const today = await api.today(TIME_ZONE);
+      state.today = today;
+      setTimeOfDay(today.timeOfDay);
+      const arrived = readStore(ARRIVED_KEY) === today.day;
+      if (fromBoot && !arrived && !today.isFirstDay) {
+        return go('arrive');
+      }
+      writeStore(ARRIVED_KEY, today.day);
+      go('today', { reveal: fromBoot });
+    } catch (error) {
+      if (error.code === 'daily.nothing_to_show') {
+        return go('empty');
+      }
+      go('error', { error: error.message });
+    }
+  }
+
+  async function showDays(month) {
+    try {
+      const days = await api.days(month, TIME_ZONE);
+      go('days', { days: days, month: days.month });
+    } catch (error) {
+      go('error', { error: error.message });
+    }
+  }
+
+  async function showWorld() {
+    try {
+      const results = await Promise.all([api.world(), api.rhythm(), api.me()]);
+      go('world', { world: results[0], rhythm: results[1], user: results[2] });
+    } catch (error) {
+      go('error', { error: error.message });
+    }
+  }
+
+  async function showLinger(source, from) {
+    // `source` is today's view, or a slug from the quilt or the world list.
+    try {
+      let view;
+      if (typeof source === 'string') {
+        const detail = await api.experience(source);
+        view = {
+          experience: detail.experience,
+          place: detail.place
+            ? {
+                name: detail.place.name,
+                region: detail.region ? detail.region.name : null,
+                country: detail.country ? detail.country.name : null,
+              }
+            : null,
+          kept: null,
+        };
+      } else {
+        view = { experience: source.experience, place: source.place, kept: source.kept };
+      }
+      api.signal('open', view.experience.id, { sessionId: SESSION_ID });
+      go('linger', { linger: Object.assign(view, { from: from, openedAt: Date.now() }) });
+    } catch (error) {
+      go('error', { error: error.message });
+    }
+  }
+
+  function leaveLinger() {
+    const linger = state.linger;
+    if (linger) {
+      // How long someone stayed with a place is the quietest, most honest
+      // signal there is. The server ignores anything too short to mean much.
+      api.signal('dwell', linger.experience.id, {
+        sessionId: SESSION_ID,
+        durationMs: Date.now() - linger.openedAt,
+      });
+    }
+    const from = (linger && linger.from) || 'today';
+    if (from === 'days') return showDays(state.month);
+    if (from === 'world') return showWorld();
+    go('today', { reveal: false });
+  }
+
+  // A tab left open overnight should wake up to the new day, not yesterday's.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && state.today && state.today.day !== localDay()) {
+      boot();
+    }
+  });
+
+  // ---------------------------------------------------------------- screens --
+
+  function loadingScreen() {
+    return el('section', { class: 'screen' }, [
+      el('div', { class: 'centered' }, [el('div', { class: 'breathe', 'aria-label': 'Loading' })]),
+    ]);
+  }
+
+  function openScreen() {
+    return el('section', { class: 'screen' }, [
+      scene(null, 'firo-open-3', ['mountains'], 'reveal'),
+      el('div', { class: 'veil' }),
+      el('div', { class: 'bottom-copy' }, [
+        el('div', { class: 'kicker', text: 'Firo' }),
+        el('h1', { class: 'display lg', text: 'One place a day. Nothing to buy.' }),
+        el('p', {
+          class: 'quiet',
+          text: 'Four quick choices, and tomorrow morning there will be somewhere waiting for you.',
+        }),
+        el('div', { style: 'margin-top: 10px' }, [
+          el('button', {
+            type: 'button',
+            class: 'primary solid',
+            id: 'btn-begin',
+            text: state.busy ? 'One moment…' : 'Begin',
+            disabled: state.busy,
+            onclick: begin,
+          }),
         ]),
-      ]);
+        el('button', {
+          type: 'button',
+          class: 'linkish',
+          text: 'I already have an account',
+          onclick: function () {
+            go('signin');
+          },
+        }),
+        state.error ? el('p', { class: 'error', text: state.error }) : null,
+      ]),
+    ]);
+  }
+
+  async function begin() {
+    state.busy = true;
+    render();
+    try {
+      const result = await api.startGuest();
+      api.setTokens(result.tokens);
+      state.user = result.user;
+      state.busy = false;
+      await startOnboarding();
+    } catch (error) {
+      state.busy = false;
+      go('open', { error: error.message });
+    }
+  }
+
+  function signInScreen() {
+    const error = el('p', { class: 'error', id: 'signin-error', text: state.error || '' });
+    const form = el('form', { class: 'form', novalidate: true }, [
+      field('signin-email', 'Email', 'email', 'username'),
+      field('signin-password', 'Password', 'password', 'current-password'),
+      error,
+      el('div', {}, [el('button', { type: 'submit', class: 'primary solid', text: 'Sign in' })]),
+    ]);
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      error.textContent = '';
+      try {
+        const result = await api.login(
+          document.getElementById('signin-email').value.trim(),
+          document.getElementById('signin-password').value,
+        );
+        api.setTokens(result.tokens);
+        await boot();
+      } catch (err) {
+        error.textContent =
+          err.code === 'auth.invalid_credentials'
+            ? 'That email and password do not match an account.'
+            : err.message;
+      }
+    });
+
+    return el('section', { class: 'screen page' }, [
+      el('div', {}, [
+        el('button', { type: 'button', class: 'back', text: '‹ Back', onclick: function () { go('open'); } }),
+      ]),
+      el('div', { class: 'page-head', style: 'margin-top: 8vh' }, [
+        el('h1', { class: 'display', text: 'Welcome back.' }),
+        el('p', { class: 'quiet', text: 'Your taste profile is waiting where you left it.' }),
+      ]),
+      form,
+    ]);
+  }
+
+  function field(id, label, type, autocomplete) {
+    return el('div', { class: 'field' }, [
+      el('label', { for: id, text: label }),
+      el('input', { id: id, type: type, autocomplete: autocomplete, required: true }),
+    ]);
+  }
+
+  function onboardingScreen() {
+    const steps = state.flow.steps;
+    const step = steps[state.stepIndex];
+    const picked = state.answers[step.id] || [];
+    const eitherOr = step.type === 'either_or';
+    const count = step.options.length;
+    const layout = count === 2 ? 'n2' : count <= 4 ? 'n4' : 'n6';
+
+    const choices = el(
+      'div',
+      { class: 'choices ' + layout + (picked.length ? ' has-pick' : '') },
+      step.options.map(function (option) {
+        const on = picked.indexOf(option.id) >= 0;
+        return el(
+          'button',
+          {
+            type: 'button',
+            class: 'choice',
+            'data-option': option.id,
+            'aria-pressed': on ? 'true' : 'false',
+            onclick: function () {
+              choose(step, option.id);
+            },
+          },
+          [
+            scene(option.image, option.id, option.tags),
+            el('div', { class: 'shade' }),
+            el('span', { class: 'cap', text: option.label }),
+          ],
+        );
+      }),
+    );
+
+    const total = NUMBER_WORDS[steps.length - 1] || String(steps.length);
+    return el('section', { class: 'screen ob' }, [
+      el('div', { class: 'ob-head' }, [
+        el('div', {
+          class: 'kicker',
+          text: (NUMBER_WORDS[state.stepIndex] || state.stepIndex + 1) + ' of ' + total.toLowerCase(),
+        }),
+        el('h1', { class: 'display', text: step.title }),
+        step.subtitle ? el('p', { class: 'whisper', text: step.subtitle }) : null,
+      ]),
+      choices,
+      el('div', { class: 'ob-foot' }, [
+        el('button', {
+          type: 'button',
+          class: 'linkish',
+          text: 'skip',
+          onclick: function () {
+            delete state.answers[step.id];
+            nextStep();
+          },
+        }),
+        eitherOr
+          ? el('span', { text: 'tap the one that pulls you' })
+          : el('button', {
+              type: 'button',
+              class: 'primary',
+              id: 'btn-next',
+              text: state.stepIndex === steps.length - 1 ? 'Show me' : 'Continue',
+              disabled: picked.length < (step.minSelect || 1),
+              onclick: nextStep,
+            }),
+      ]),
+    ]);
+  }
+
+  function choose(step, optionId) {
+    const current = state.answers[step.id] || [];
+    if (step.type === 'either_or') {
+      state.answers[step.id] = [optionId];
+      render();
+      // A single pick needs no Continue: let the choice register, then move on.
+      setTimeout(nextStep, 450);
+      return;
+    }
+    state.answers[step.id] =
+      current.indexOf(optionId) >= 0
+        ? current.filter(function (id) {
+            return id !== optionId;
+          })
+        : current.concat([optionId]);
+    render();
+  }
+
+  async function nextStep() {
+    if (state.stepIndex < state.flow.steps.length - 1) {
+      state.stepIndex += 1;
+      return render();
+    }
+    const answers = Object.keys(state.answers)
+      .filter(function (stepId) {
+        return state.answers[stepId].length > 0;
+      })
+      .map(function (stepId) {
+        return { stepId: stepId, selectedOptionIds: state.answers[stepId] };
+      });
+
+    if (state.user) {
+      writeStore(ONBOARDED_KEY, state.user.id);
+    }
+    if (answers.length === 0) {
+      return go('forming', { sketch: [], sketchTags: [] });
+    }
+    try {
+      const result = await api.submitOnboarding(answers);
+      go('forming', {
+        sketch: result.sketch || [],
+        sketchTags: (result.profile.topTastes || []).map(function (taste) {
+          return taste.tag;
+        }),
+      });
+    } catch (error) {
+      go('error', { error: error.message });
+    }
+  }
+
+  function formingScreen() {
+    const hasSketch = state.sketch.length > 0;
+    return el('section', { class: 'screen' }, [
+      el('div', { class: 'centered' }, [
+        el('div', { class: 'kicker', text: hasSketch ? "We're getting a sense of you" : 'No rush' }),
+        hasSketch
+          ? el(
+              'div',
+              { class: 'words' },
+              state.sketch.map(function (word) {
+                return el('span', { text: word });
+              }),
+            )
+          : el('h1', { class: 'display', text: "We'll learn as you go." }),
+        el('p', {
+          class: 'quiet',
+          style: 'max-width: 24ch; margin-top: 14px',
+          text: hasSketch
+            ? "That's a first sketch. Every day you visit, it gets truer."
+            : 'Each place you keep, or pass by, teaches Firo a little more.',
+        }),
+        el('button', {
+          type: 'button',
+          class: 'primary',
+          id: 'btn-forming',
+          style: 'margin-top: 22px',
+          text: 'Continue',
+          onclick: function () {
+            go('when', { returnTo: null });
+          },
+        }),
+      ]),
+    ]);
+  }
+
+  function whenScreen() {
+    const current = state.rhythm ? state.rhythm.mode : null;
+    function option(mode, label, detail) {
+      return el(
+        'button',
+        {
+          type: 'button',
+          class: 'option',
+          'data-mode': mode,
+          'aria-pressed': current === mode ? 'true' : 'false',
+          onclick: async function () {
+            try {
+              state.rhythm = await api.setRhythm(mode, TIME_ZONE);
+            } catch (error) {
+              /* the preference can be set later from World; never block the ritual on it */
+            }
+            if (state.returnTo === 'world') return showWorld();
+            go('keep', { returnTo: null });
+          },
+        },
+        [el('span', { text: label }), el('span', { text: detail })],
+      );
+    }
+    return el('section', { class: 'screen page' }, [
+      el('div', { class: 'spacer' }),
+      el('div', { class: 'page-head' }, [
+        el('h1', { class: 'display', text: 'When should your place arrive?' }),
+        el('p', { class: 'quiet', text: 'One quiet note a day, at a time you choose. Never more.' }),
+      ]),
+      el('div', { class: 'options' }, [
+        option('morning', 'With the morning', '7:30'),
+        option('evening', 'In the evening', '21:00'),
+        option('none', "I'll come by myself", 'no notifications'),
+      ]),
+      el('p', { class: 'whisper', text: 'You can change this any time. Firo never sends anything else.' }),
+      el('div', { class: 'spacer' }),
+    ]);
+  }
+
+  function keepScreen() {
+    const error = el('p', { class: 'error', id: 'keep-error' });
+    const signInInstead = el('button', {
+      type: 'button',
+      class: 'linkish',
+      hidden: true,
+      text: 'Sign in to that account instead',
+      onclick: function () {
+        go('signin');
+      },
+    });
+    const form = el('form', { class: 'form', novalidate: true }, [
+      field('keep-email', 'Email', 'email', 'email'),
+      field('keep-password', 'Password (8 or more characters)', 'password', 'new-password'),
+      error,
+      signInInstead,
+      el('div', {}, [el('button', { type: 'submit', class: 'primary solid', text: 'Keep it' })]),
+    ]);
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      error.textContent = '';
+      signInInstead.hidden = true;
+      try {
+        const result = await api.claim({
+          email: document.getElementById('keep-email').value.trim(),
+          password: document.getElementById('keep-password').value,
+        });
+        api.setTokens(result.tokens);
+        state.user = result.user;
+        if (state.returnTo === 'world') return showWorld();
+        await showToday(false);
+      } catch (err) {
+        if (err.code === 'identity.email_taken') {
+          signInInstead.hidden = false;
+        }
+        const fields = err.details && err.details.fields;
+        error.textContent = Array.isArray(fields) && fields.length
+          ? fields
+              .map(function (f) {
+                return f.path === 'password'
+                  ? 'The password needs at least 8 characters.'
+                  : f.path === 'email'
+                    ? 'That email does not look complete.'
+                    : f.message;
+              })
+              .join(' ')
+          : err.message;
+      }
     });
 
     return el('section', { class: 'screen' }, [
-      el('h2', { text: 'Made for you' }),
-      errorBanner(),
-      el('div', { class: 'feed', id: 'feed' }, cards),
+      el('div', { class: 'linger-pic', style: 'flex-basis: 34%' }, [
+        scene(null, 'keep-' + (state.user ? state.user.id : 'x'), state.sketchTags.length ? state.sketchTags : ['cold']),
+      ]),
+      el('div', { class: 'linger-body', style: 'gap: 14px' }, [
+        el('h1', { class: 'display', text: 'Keep your DNA?' }),
+        el('p', {
+          class: 'quiet',
+          text: 'Sign in and it follows you to any phone. Or don’t, and it lives on this one.',
+        }),
+        form,
+        el('button', {
+          type: 'button',
+          class: 'linkish',
+          id: 'btn-not-now',
+          text: state.returnTo === 'world' ? 'Not now' : 'Not now — show me my first place',
+          onclick: function () {
+            if (state.returnTo === 'world') return showWorld();
+            showToday(false);
+          },
+        }),
+      ]),
+    ]);
+  }
+
+  function arriveScreen() {
+    const today = state.today;
+    return el('section', { class: 'screen' }, [
+      el('div', { class: 'centered' }, [
+        el('div', { class: 'kicker', text: arrivalLine(today.day) }),
+        el('h1', { class: 'display lg', text: today.greeting }),
+        el('div', { class: 'breathe' }),
+        el('p', { class: 'whisper', style: 'margin-top: 26px', text: 'tap when you’re ready' }),
+      ]),
       el('button', {
-        class: 'secondary',
-        id: 'btn-refresh',
-        text: 'Refresh feed',
+        type: 'button',
+        class: 'tap-area',
+        id: 'btn-arrive',
+        'aria-label': 'Show today’s place',
         onclick: function () {
-          guard(async function () {
-            const feed = await api.feed(12, sessionId);
-            setState({ feed: feed });
-          });
+          writeStore(ARRIVED_KEY, today.day);
+          go('today', { reveal: true });
         },
       }),
     ]);
   }
 
-  // --- render ----------------------------------------------------------------
+  function todayScreen() {
+    const today = state.today;
+    const experience = today.experience;
 
-  function render() {
-    const screens = {
-      welcome: welcomeScreen,
-      signup: signupScreen,
-      onboarding: onboardingScreen,
-      profile: profileScreen,
-      feed: feedScreen,
-    };
-    app.innerHTML = '';
-    app.appendChild(screens[state.screen]());
-    stepLabel.textContent = state.screen;
+    const keep = el('button', {
+      type: 'button',
+      class: 'keep',
+      id: 'btn-keep',
+      'aria-pressed': today.kept ? 'true' : 'false',
+      'aria-label': today.kept ? 'Kept. Tap to let it go.' : 'Keep this place',
+      onclick: async function () {
+        const next = !today.kept;
+        today.kept = next;
+        keep.setAttribute('aria-pressed', String(next));
+        label.textContent = next ? 'kept' : 'keep';
+        try {
+          if (next) {
+            await api.keep(experience.id);
+            api.signal('save', experience.id, { sessionId: SESSION_ID });
+          } else {
+            await api.unkeep(experience.id);
+            api.signal('unsave', experience.id, { sessionId: SESSION_ID });
+          }
+        } catch (error) {
+          today.kept = !next;
+          keep.setAttribute('aria-pressed', String(!next));
+          label.textContent = !next ? 'kept' : 'keep';
+        }
+      },
+    });
+    const label = el('div', { class: 'keep-label', text: today.kept ? 'kept' : 'keep' });
+
+    const section = el('section', { class: 'screen' }, [
+      scene(experience.media, experience.id, experience.tags, state.reveal ? 'reveal' : null),
+      el('div', { class: 'veil' }),
+      el('div', { class: 'topbar' }, [el('span', { text: 'Today' }), el('span', { text: shortDate(today.day) })]),
+      keep,
+      label,
+      el('div', { class: 'today-copy', id: 'today-copy' }, [
+        el('div', { class: 'kicker', text: placeLine(today.place) }),
+        el('h1', { class: 'display', id: 'today-title', text: experience.title }),
+        el('p', { class: 'quiet', text: experience.summary }),
+        today.reason ? el('p', { class: 'whisper', id: 'today-reason', text: today.reason }) : null,
+        el('button', {
+          type: 'button',
+          class: 'more',
+          id: 'btn-more',
+          text: 'read more ↑',
+          onclick: function () {
+            showLinger(today, 'today');
+          },
+        }),
+      ]),
+      nav('today'),
+    ]);
+
+    // Swipe up to linger, the gesture the "read more ↑" points at.
+    let startY = null;
+    section.addEventListener('touchstart', function (event) {
+      startY = event.touches[0].clientY;
+    }, { passive: true });
+    section.addEventListener('touchend', function (event) {
+      if (startY !== null && startY - event.changedTouches[0].clientY > 70) {
+        showLinger(today, 'today');
+      }
+      startY = null;
+    });
+    return section;
   }
 
-  // --- boot ------------------------------------------------------------------
+  function lingerScreen() {
+    const linger = state.linger;
+    const experience = linger.experience;
+    const facts = [
+      experience.bestSeason ? ['Best in', experience.bestSeason] : null,
+      ['Feels like', words(experience.tags)],
+      linger.place ? ['Where', placeLine(linger.place)] : null,
+    ].filter(Boolean);
 
-  (async function boot() {
-    render();
-    try {
-      const health = await api.health();
-      apiStatus.textContent = 'API ' + health.status + ' · v' + health.version + ' · ' + health.env;
-      apiStatus.className = 'status ok';
-    } catch (error) {
-      apiStatus.textContent = 'API unreachable at ' + api.baseUrl;
-      apiStatus.className = 'status bad';
+    return el('section', { class: 'screen' }, [
+      el('div', { class: 'linger-pic' }, [
+        scene(experience.media, experience.id, experience.tags),
+        el('div', { class: 'topbar' }, [
+          el('button', { type: 'button', class: 'back', id: 'btn-back', text: '‹ back', onclick: leaveLinger }),
+          el('span', {}),
+        ]),
+      ]),
+      el('div', { class: 'linger-body' }, [
+        el('h1', { class: 'display sm', id: 'linger-title', text: experience.title }),
+        el('p', { class: 'story', text: experience.story || experience.summary }),
+        el(
+          'div',
+          { class: 'facts' },
+          facts.map(function (fact) {
+            return el('div', { class: 'fact' }, [el('span', { text: fact[0] }), el('span', { text: fact[1] })]);
+          }),
+        ),
+        el('p', { class: 'whisper', text: 'That’s everything. Booking is for another day, and another app.' }),
+      ]),
+    ]);
+  }
+
+  function daysScreen() {
+    const view = state.days;
+    const month = view.month;
+    const currentMonth = view.today.slice(0, 7);
+    const byDay = {};
+    view.days.forEach(function (cell) {
+      byDay[cell.day] = cell;
+    });
+
+    const first = new Date(month + '-01T12:00:00Z');
+    const offset = (first.getUTCDay() + 6) % 7; // Monday-first
+    const daysInMonth = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+
+    const cells = [];
+    for (let i = 0; i < offset; i++) {
+      cells.push(el('div', { class: 'cell pad' }));
     }
-  })();
+    // Days before the account existed are not "missed"; they are just empty.
+    const joined = state.user && state.user.createdAt ? dayIn(state.user.createdAt) : null;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = month + '-' + String(d).padStart(2, '0');
+      const cell = byDay[day];
+      if (!cell && joined && day < joined) {
+        cells.push(el('div', { class: 'cell pad' }));
+      } else if (cell) {
+        const colour = cell.dominantColor;
+        const node = el(
+          'button',
+          {
+            type: 'button',
+            class: 'cell' + (cell.kept ? ' kept' : '') + (day === view.today ? ' today-cell' : ''),
+            title: cell.title,
+            'aria-label': shortDate(day) + ': ' + cell.title + (cell.kept ? ', kept' : ''),
+            onclick: function () {
+              showLinger(cell.slug, 'days');
+            },
+          },
+          colour ? null : scene(null, cell.experienceId, cell.tags),
+        );
+        if (colour) {
+          node.style.background = colour;
+        }
+        cells.push(node);
+      } else {
+        cells.push(el('div', { class: 'cell ' + (day > view.today ? 'future' : 'missed') }));
+      }
+    }
+
+    // A first month starts at the week the user arrived, not with empty rows.
+    while (cells.length >= 7 && cells.slice(0, 7).every(isPad)) {
+      cells.splice(0, 7);
+    }
+
+    const elapsed = month === currentMonth ? Number(view.today.slice(8, 10)) : daysInMonth;
+    const counted = cells.filter(function (node) {
+      return !node.classList.contains('pad') && !node.classList.contains('future');
+    }).length;
+    return el('section', { class: 'screen page' }, [
+      el('div', { class: 'page-head' }, [
+        el('div', { class: 'kicker', text: 'Your days' }),
+        el('h1', { class: 'display', text: 'Your ' + monthName(month) }),
+        el('p', { class: 'quiet', text: 'Every day you opened Firo, in the colour of the place it showed you.' }),
+      ]),
+      el('div', { class: 'month-nav' }, [
+        el('button', {
+          type: 'button',
+          text: '‹ ' + monthName(shiftMonth(month, -1)),
+          onclick: function () {
+            showDays(shiftMonth(month, -1));
+          },
+        }),
+        el('button', {
+          type: 'button',
+          text: monthName(shiftMonth(month, 1)) + ' ›',
+          disabled: month >= currentMonth,
+          onclick: function () {
+            showDays(shiftMonth(month, 1));
+          },
+        }),
+      ]),
+      el('div', { class: 'weekdays', 'aria-hidden': 'true' }, ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(function (d) {
+        return el('span', { text: d });
+      })),
+      el('div', { class: 'quilt', id: 'quilt' }, cells),
+      el('p', {
+        class: 'legend',
+        text: view.days.length + ' of ' + Math.min(elapsed, counted) + ' days · a dot means kept',
+      }),
+      el('p', { class: 'insight', id: 'insight', text: view.insight }),
+      el('div', { class: 'spacer' }),
+      nav('days'),
+    ]);
+  }
+
+  function isPad(node) {
+    return node.classList.contains('pad');
+  }
+
+  function worldMap(places) {
+    const land = window.WORLD_LAND_PATH || '';
+    const pins = places
+      .map(function (place) {
+        const x = ((place.lng + 180) * 2).toFixed(1);
+        const y = ((90 - place.lat) * 2).toFixed(1);
+        return (
+          '<circle class="pin-halo" cx="' + x + '" cy="' + y + '" r="12"/>' +
+          '<circle class="pin" cx="' + x + '" cy="' + y + '" r="4"/>'
+        );
+      })
+      .join('');
+    // Cropped to the inhabited band (70°N to 56°S) so the pins are not lost in
+    // Antarctica and the Arctic ocean.
+    return el('div', {
+      class: 'map',
+      html:
+        '<svg viewBox="0 40 720 252" role="img" aria-label="Map of the places you have kept">' +
+        '<path class="land" d="' + land + '"/>' + pins + '</svg>',
+    });
+  }
+
+  function worldScreen() {
+    const world = state.world;
+    const user = state.user;
+    const rhythm = state.rhythm;
+
+    let question = null;
+    if (world.surpriseTomorrow) {
+      question = el('div', { class: 'question' }, [
+        el('p', { class: 'display sm', text: 'Tomorrow will be somewhere different. Sleep well.' }),
+        el('div', { class: 'row' }, [
+          el('button', {
+            type: 'button',
+            class: 'linkish',
+            text: 'Actually, surprise me another day',
+            onclick: async function () {
+              await api.setTomorrow(false, null);
+              showWorld();
+            },
+          }),
+        ]),
+      ]);
+    } else if (world.question) {
+      question = el('div', { class: 'question' }, [
+        el('p', { class: 'display sm', id: 'world-question', text: world.question }),
+        el('div', { class: 'row' }, [
+          el('button', {
+            type: 'button',
+            class: 'primary solid',
+            id: 'btn-surprise',
+            text: 'Yes',
+            onclick: async function () {
+              await api.setTomorrow(true, world.surpriseToward);
+              showWorld();
+            },
+          }),
+        ]),
+      ]);
+    }
+
+    const rhythmText = !rhythm || rhythm.mode === 'none'
+      ? 'Firo sends you nothing. You come by yourself.'
+      : 'Your place arrives ' + (rhythm.mode === 'morning' ? 'with the morning' : 'in the evening') +
+        (rhythm.notifyAt ? ', at ' + rhythm.notifyAt : '') + '.';
+
+    return el('section', { class: 'screen page' }, [
+      el('div', { class: 'page-head' }, [
+        el('div', { class: 'kicker', text: 'Your world · ' + world.detail }),
+        el('h1', { class: 'display', id: 'world-headline', text: world.headline }),
+      ]),
+      worldMap(world.places),
+      world.places.length
+        ? el(
+            'div',
+            { class: 'facts', style: 'border-top: 0; padding-top: 0' },
+            world.places.map(function (place) {
+              return el(
+                'button',
+                {
+                  type: 'button',
+                  class: 'fact',
+                  style: 'text-align: left',
+                  onclick: function () {
+                    showLinger(place.slug, 'world');
+                  },
+                },
+                [el('span', { text: place.title }), el('span', { class: 'quiet', text: place.placeName || '' })],
+              );
+            }),
+          )
+        : el('p', { class: 'quiet', text: 'Tap the circle on a place you love, and it lands here.' }),
+      question,
+      el('div', { class: 'settings' }, [
+        el('div', {}, [
+          rhythmText + ' ',
+          el('button', {
+            type: 'button',
+            text: 'Change',
+            onclick: function () {
+              go('when', { returnTo: 'world' });
+            },
+          }),
+        ]),
+        user && user.isGuest
+          ? el('div', {}, [
+              'Your DNA lives only on this phone. ',
+              el('button', {
+                type: 'button',
+                id: 'btn-keep-dna',
+                text: 'Keep it',
+                onclick: function () {
+                  go('keep', { returnTo: 'world' });
+                },
+              }),
+            ])
+          : el('div', {}, [
+              'Signed in as ' + (user ? user.email || '@' + user.handle : '') + '. ',
+              el('button', {
+                type: 'button',
+                text: 'Sign out',
+                onclick: async function () {
+                  await api.logout();
+                  state.user = null;
+                  go('open');
+                },
+              }),
+            ]),
+      ]),
+      el('div', { class: 'spacer' }),
+      nav('world'),
+    ]);
+  }
+
+  function emptyScreen() {
+    return el('section', { class: 'screen' }, [
+      el('div', { class: 'centered' }, [
+        el('h1', { class: 'display', text: 'Nothing to show yet.' }),
+        el('p', { class: 'quiet', text: 'The catalogue is empty. Publish a place from the console, then come back.' }),
+      ]),
+    ]);
+  }
+
+  function errorScreen() {
+    return el('section', { class: 'screen' }, [
+      el('div', { class: 'centered' }, [
+        el('h1', { class: 'display sm', text: 'Something went quiet.' }),
+        el('p', { class: 'quiet', text: state.error || 'Firo could not load just now.' }),
+        el('button', { type: 'button', class: 'primary', text: 'Try again', onclick: boot }),
+      ]),
+    ]);
+  }
+
+  render();
+  boot();
 })();
