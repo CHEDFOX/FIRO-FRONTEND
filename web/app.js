@@ -328,6 +328,21 @@
     }
   }
 
+  /** After onboarding: the first place, revealed through its clues. */
+  async function arriveAtFirstPlace() {
+    try {
+      const today = await api.today(TIME_ZONE);
+      state.today = today;
+      setTimeOfDay(today.timeOfDay);
+      go(today.clues && today.clues.length ? 'arrive' : 'today', { reveal: true });
+    } catch (error) {
+      if (error.code === 'daily.nothing_to_show') {
+        return go('empty');
+      }
+      go('error', { error: error.message });
+    }
+  }
+
   async function showDays(month) {
     try {
       const days = await api.days(month, TIME_ZONE);
@@ -413,7 +428,13 @@
         el('h1', { class: 'display lg', text: 'One place a day. Nothing to buy.' }),
         el('p', {
           class: 'quiet',
-          text: 'Four quick choices, and tomorrow morning there will be somewhere waiting for you.',
+          text:
+            'Every day, Firo chooses one place in the world for you. Not a list, not a feed: ' +
+            'one place, and the reason it was chosen for you and not for someone else.',
+        }),
+        el('p', {
+          class: 'whisper',
+          text: 'Four small questions, about a minute. The first place is waiting at the end.',
         }),
         el('div', { style: 'margin-top: 10px' }, [
           el('button', {
@@ -634,8 +655,14 @@
           class: 'quiet',
           style: 'max-width: 24ch; margin-top: 14px',
           text: hasSketch
-            ? "That's a first sketch. Every day you visit, it gets truer."
-            : 'Each place you keep, or pass by, teaches Firo a little more.',
+            ? "That's a first sketch, rough on purpose. Every place you keep, or pass by, " +
+              'sharpens it — and in a few weeks it will know things about you that you never said.'
+            : 'Each place you keep, or pass by, teaches Firo a little more about you.',
+        }),
+        el('p', {
+          class: 'whisper',
+          style: 'margin-top: 10px',
+          text: 'Two small things left, then your first place.',
         }),
         el('button', {
           type: 'button',
@@ -678,14 +705,22 @@
       el('div', { class: 'spacer' }),
       el('div', { class: 'page-head' }, [
         el('h1', { class: 'display', text: 'When should your place arrive?' }),
-        el('p', { class: 'quiet', text: 'One quiet note a day, at a time you choose. Never more.' }),
+        el('p', {
+          class: 'quiet',
+          text:
+            'Once a day, one quiet line. Never the name of the place, only a hint of it: ' +
+            '“Somewhere cold and quiet, today.” The rest is yours to open when you like.',
+        }),
       ]),
       el('div', { class: 'options' }, [
         option('morning', 'With the morning', '7:30'),
         option('evening', 'In the evening', '21:00'),
         option('none', "I'll come by myself", 'no notifications'),
       ]),
-      el('p', { class: 'whisper', text: 'You can change this any time. Firo never sends anything else.' }),
+      el('p', {
+        class: 'whisper',
+        text: 'Change it any time. Firo will never send you anything else: no offers, no reminders, no streaks.',
+      }),
       el('div', { class: 'spacer' }),
     ]);
   }
@@ -720,7 +755,7 @@
         api.setTokens(result.tokens);
         state.user = result.user;
         if (state.returnTo === 'world') return showWorld();
-        await showToday(false);
+        await arriveAtFirstPlace();
       } catch (err) {
         if (err.code === 'identity.email_taken') {
           signInInstead.hidden = false;
@@ -748,7 +783,10 @@
         el('h1', { class: 'display', text: 'Keep your DNA?' }),
         el('p', {
           class: 'quiet',
-          text: 'Sign in and it follows you to any phone. Or don’t, and it lives on this one.',
+          text:
+            'Everything Firo just learned about you lives only on this phone for now. ' +
+            'Add an email and it follows you anywhere, along with every place you keep from today on. ' +
+            'Or don’t — it will still be here tomorrow.',
         }),
         form,
         el('button', {
@@ -758,7 +796,7 @@
           text: state.returnTo === 'world' ? 'Not now' : 'Not now — show me my first place',
           onclick: function () {
             if (state.returnTo === 'world') return showWorld();
-            showToday(false);
+            arriveAtFirstPlace();
           },
         }),
       ]),
@@ -771,8 +809,19 @@
       el('div', { class: 'centered' }, [
         el('div', { class: 'kicker', text: arrivalLine(today.day) }),
         el('h1', { class: 'display lg', text: today.greeting }),
+        el(
+          'div',
+          { class: 'clues', id: 'clues' },
+          (today.clues || []).map(function (clue, index) {
+            return el('p', { class: 'clue', style: '--d: ' + (1.4 + index * 1.7) + 's', text: clue });
+          }),
+        ),
         el('div', { class: 'breathe' }),
-        el('p', { class: 'whisper', style: 'margin-top: 26px', text: 'tap when you’re ready' }),
+        el('p', {
+          class: 'whisper clue',
+          style: '--d: ' + (1.4 + (today.clues || []).length * 1.7) + 's; margin-top: 26px',
+          text: 'tap to see where',
+        }),
       ]),
       el('button', {
         type: 'button',
@@ -834,7 +883,7 @@
           type: 'button',
           class: 'more',
           id: 'btn-more',
-          text: 'read more ↑',
+          text: 'there’s more to this place ↑',
           onclick: function () {
             showLinger(today, 'today');
           },
@@ -884,7 +933,16 @@
             return el('div', { class: 'fact' }, [el('span', { text: fact[0] }), el('span', { text: fact[1] })]);
           }),
         ),
-        el('p', { class: 'whisper', text: 'That’s everything. Booking is for another day, and another app.' }),
+        linger.from === 'today' && state.today && state.today.tomorrow
+          ? el('div', { class: 'tomorrow' }, [
+              el('div', { class: 'kicker', text: 'Tomorrow' }),
+              el('p', { class: 'display sm', id: 'tomorrow-line', text: state.today.tomorrow }),
+            ])
+          : null,
+        el('p', {
+          class: 'whisper',
+          text: 'Nothing to book here, on purpose. Just a place worth knowing exists.',
+        }),
       ]),
     ]);
   }
@@ -950,7 +1008,12 @@
       el('div', { class: 'page-head' }, [
         el('div', { class: 'kicker', text: 'Your days' }),
         el('h1', { class: 'display', text: 'Your ' + monthName(month) }),
-        el('p', { class: 'quiet', text: 'Every day you opened Firo, in the colour of the place it showed you.' }),
+        el('p', {
+          class: 'quiet',
+          text:
+            'Every day you opened Firo, in the colour of the place it gave you. ' +
+            'Given enough days, it stops looking like a calendar and starts looking like a portrait.',
+        }),
       ]),
       el('div', { class: 'month-nav' }, [
         el('button', {
@@ -1055,8 +1118,9 @@
 
     return el('section', { class: 'screen page' }, [
       el('div', { class: 'page-head' }, [
-        el('div', { class: 'kicker', text: 'Your world · ' + world.detail }),
+        el('div', { class: 'kicker', text: 'Your world' }),
         el('h1', { class: 'display', id: 'world-headline', text: world.headline }),
+        el('p', { class: 'quiet', text: world.detail }),
       ]),
       worldMap(world.places),
       world.places.length
@@ -1078,8 +1142,9 @@
               );
             }),
           )
-        : el('p', { class: 'quiet', text: 'Tap the circle on a place you love, and it lands here.' }),
+        : null,
       question,
+      world.hint ? el('p', { class: 'whisper', id: 'world-hint', text: world.hint }) : null,
       el('div', { class: 'settings' }, [
         el('div', {}, [
           rhythmText + ' ',
@@ -1093,7 +1158,7 @@
         ]),
         user && user.isGuest
           ? el('div', {}, [
-              'Your DNA lives only on this phone. ',
+              'Everything Firo knows about you lives only on this phone. ',
               el('button', {
                 type: 'button',
                 id: 'btn-keep-dna',

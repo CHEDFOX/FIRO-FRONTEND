@@ -19,15 +19,16 @@ every day     Arrive → Today → (read more) → Days · World
 | **Forming** | The first sketch of the user's taste in a few words (`sketch` from `POST /v1/onboarding/answers`). |
 | **When** | Morning, evening, or "I'll come by myself" (`PUT /v1/me/rhythm`). |
 | **Keep your DNA?** | Optional email and password (`POST /v1/auth/claim`). The guest account becomes a real one in place: same id, same profile, same days. |
-| **Arrive** | The first open of a new day shows only the date and one sentence ("Somewhere cold and quiet, today.") until the user taps. |
+| **Arrive** | Before each place, including the very first: the date, a hint ("Somewhere cold and quiet, today."), then clues one at a time ("It's 06:40 there right now…", "It lies 64° north…") until the user taps to see where. |
 | **Today** | The day's place, full screen (`GET /v1/today`). One circle to keep it. One quiet line saying why it was chosen. |
-| **Read more** | The story, the best season, what it feels like, where it is. Nothing to book. Time spent here is sent as a `dwell` signal. |
+| **There's more to this place** | The story, the best season, what it feels like, where it is, and a last line about tomorrow that leaves it open. Nothing to book. Time spent here is sent as a `dwell` signal. |
 | **Days** | The month as a quilt of colours, one per day opened, with a dot for each kept place and one sentence about the month (`GET /v1/days`). |
 | **World** | Kept places on a map, one sentence about their shape, and one question about tomorrow. Answering *Yes* steers tomorrow's pick (`PUT /v1/tomorrow`). Settings live here too. |
 
-The words on these screens (greeting, reason, the month's sentence, the
-world's question) come from the server, so they can be improved without
-shipping a new client.
+The words on these screens (greeting, clues, reason, tomorrow's line, the
+month's sentence, the world's question) come from the server, so they can be
+improved without shipping a new client. The writing uses curiosity on purpose,
+within strict honesty rules; see ADR-0012 in the backend repo.
 
 The colours follow the time of day: warmer in the morning, dimmer and cooler
 in the evening and at night.

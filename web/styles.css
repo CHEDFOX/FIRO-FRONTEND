@@ -849,3 +849,44 @@ p {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- Arrive clues: facts about the place, one at a time, before the place --- */
+
+.clues {
+  display: grid;
+  gap: 12px;
+  max-width: 30ch;
+  margin-top: 22px;
+  text-align: center;
+}
+
+.clue {
+  font: italic 400 17px/1.4 var(--serif);
+  color: var(--dim);
+}
+
+.tomorrow {
+  display: grid;
+  gap: 8px;
+  padding-top: 22px;
+  border-top: 1px solid var(--hair);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .clue {
+    animation: word-in 1.6s ease-out both;
+    animation-delay: var(--d, 0s);
+  }
+}
+
+.whisper.clue {
+  font: italic 400 14px/1.35 var(--serif);
+  color: var(--faint);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* On Forming, the "what's next" line arrives after the sketch has been read. */
+  .words ~ .whisper {
+    animation: word-in 1.4s ease-out 3.8s both;
+  }
+}
