@@ -44,6 +44,9 @@
     sketchTags: [],
     today: null,
     reveal: false,
+    /** Today was just opened from the envelope: let the words arrive. */
+    enter: false,
+    deciding: null,
     days: null,
     month: null,
     world: null,
@@ -223,6 +226,51 @@
       node.innerHTML = drawLandscape(key, tags);
     }
     return node;
+  }
+
+  /** A title as one span per word, so the words can arrive one after another. */
+  function wordsOf(text) {
+    return String(text)
+      .split(' ')
+      .map(function (word, index) {
+        return el('span', { class: 'w', style: '--i: ' + index, text: word + ' ' });
+      });
+  }
+
+  /**
+   * A kept place becomes a light on the map. Show that: a small light leaves
+   * the circle and lands on the word "world", which glows for a moment.
+   */
+  function sendLight(from) {
+    const target = root.querySelector('.nav button:last-child');
+    if (!target || !from.animate) return;
+    const a = from.getBoundingClientRect();
+    const b = target.getBoundingClientRect();
+    const light = el('div', { class: 'light', 'aria-hidden': 'true' });
+    light.style.left = a.left + a.width / 2 + 'px';
+    light.style.top = a.top + a.height / 2 + 'px';
+    document.body.appendChild(light);
+    const dx = b.left + b.width / 2 - (a.left + a.width / 2);
+    const dy = b.top + b.height / 2 - (a.top + a.height / 2);
+    light
+      .animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: 0 },
+          { transform: 'translate(calc(-50% + ' + dx * 0.5 + 'px), calc(-50% + ' + (dy * 0.5 - 40) + 'px)) scale(0.8)', opacity: 1, offset: 0.55 },
+          { transform: 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px)) scale(0.4)', opacity: 0.9, offset: 1 },
+        ],
+        { duration: 900, easing: 'cubic-bezier(0.3, 0.7, 0.2, 1)', fill: 'forwards' },
+      )
+      .finished.then(function () {
+        light.remove();
+        target.classList.add('lit');
+        setTimeout(function () {
+          target.classList.remove('lit');
+        }, 1400);
+      })
+      .catch(function () {
+        light.remove();
+      });
   }
 
   function go(screen, patch) {
@@ -421,7 +469,7 @@
 
   function openScreen() {
     return el('section', { class: 'screen' }, [
-      scene(null, 'firo-open-3', ['mountains'], 'reveal'),
+      scene(null, 'firo-open-3', ['mountains'], 'reveal sunrise'),
       el('div', { class: 'veil' }),
       el('div', { class: 'bottom-copy' }, [
         el('div', { class: 'kicker', text: 'Firo' }),
@@ -529,14 +577,17 @@
 
     const choices = el(
       'div',
-      { class: 'choices ' + layout + (picked.length ? ' has-pick' : '') },
+      {
+        class:
+          'choices ' + layout + (picked.length ? ' has-pick' : '') + (state.deciding ? ' deciding' : ''),
+      },
       step.options.map(function (option) {
         const on = picked.indexOf(option.id) >= 0;
         return el(
           'button',
           {
             type: 'button',
-            class: 'choice',
+            class: 'choice' + (state.deciding === option.id ? ' chosen' : ''),
             'data-option': option.id,
             'aria-pressed': on ? 'true' : 'false',
             onclick: function () {
@@ -591,9 +642,13 @@
     const current = state.answers[step.id] || [];
     if (step.type === 'either_or') {
       state.answers[step.id] = [optionId];
+      state.deciding = optionId;
       render();
       // A single pick needs no Continue: let the choice register, then move on.
-      setTimeout(nextStep, 450);
+      setTimeout(function () {
+        state.deciding = null;
+        nextStep();
+      }, 650);
       return;
     }
     state.answers[step.id] =
@@ -803,37 +858,131 @@
     ]);
   }
 
+  /**
+   * The envelope. The place is already on screen, dark and out of focus, and
+   * develops under the thumb like a print in a tray: press and hold for 1.2 s,
+   * let go early and it sinks back. Double-tap opens too, for anyone who can't
+   * hold; with reduced motion a single tap opens; a keyboard opens with Enter.
+   */
   function arriveScreen() {
     const today = state.today;
-    return el('section', { class: 'screen' }, [
-      el('div', { class: 'centered' }, [
-        el('div', { class: 'kicker', text: arrivalLine(today.day) }),
-        el('h1', { class: 'display lg', text: today.greeting }),
-        el(
-          'div',
-          { class: 'clues', id: 'clues' },
-          (today.clues || []).map(function (clue, index) {
-            return el('p', { class: 'clue', style: '--d: ' + (1.4 + index * 1.7) + 's', text: clue });
-          }),
-        ),
-        el('div', { class: 'breathe' }),
-        el('p', {
-          class: 'whisper clue',
-          style: '--d: ' + (1.4 + (today.clues || []).length * 1.7) + 's; margin-top: 26px',
-          text: 'tap to see where',
+    const experience = today.experience;
+    const HOLD_MS = 1200;
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const picture = scene(experience.media, experience.id, experience.tags, 'develop');
+    const ring = el('div', { class: 'hold', 'aria-hidden': 'true' });
+    const copy = el('div', { class: 'centered arrive-copy' }, [
+      el('div', { class: 'kicker', text: arrivalLine(today.day) }),
+      el('h1', { class: 'display lg', text: today.greeting }),
+      el(
+        'div',
+        { class: 'clues', id: 'clues' },
+        (today.clues || []).map(function (clue, index) {
+          return el('p', { class: 'clue', style: '--d: ' + (1.4 + index * 1.7) + 's', text: clue });
         }),
-      ]),
-      el('button', {
-        type: 'button',
-        class: 'tap-area',
-        id: 'btn-arrive',
-        'aria-label': 'Show today’s place',
-        onclick: function () {
-          writeStore(ARRIVED_KEY, today.day);
-          go('today', { reveal: true });
-        },
+      ),
+      ring,
+      el('p', {
+        class: 'whisper clue',
+        style: '--d: ' + (1.4 + (today.clues || []).length * 1.7) + 's; margin-top: 22px',
+        text: reduced ? 'tap to see where' : 'hold to see where',
       }),
     ]);
+
+    let fill = 0;
+    let startedAt = null;
+    let frame = null;
+    let opened = false;
+    let lastTap = 0;
+
+    // --fill lives on the screen itself; the picture, the veil and the ring
+    // all read it.
+    let section = null;
+    function paint(value) {
+      fill = Math.max(0, Math.min(1, value));
+      if (section) section.style.setProperty('--fill', fill.toFixed(3));
+    }
+
+    function open() {
+      if (opened) return;
+      opened = true;
+      cancelAnimationFrame(frame);
+      paint(1);
+      if (navigator.vibrate) {
+        try {
+          navigator.vibrate(12);
+        } catch (error) {
+          /* no haptics here */
+        }
+      }
+      copy.classList.add('dissolve');
+      writeStore(ARRIVED_KEY, today.day);
+      // The same picture is drawn again by Today, so the hand-off is invisible.
+      setTimeout(function () {
+        go('today', { reveal: false, enter: true });
+      }, 420);
+    }
+
+    function tick(now) {
+      const progress = (now - startedAt) / HOLD_MS;
+      if (progress >= 1) return open();
+      paint(progress);
+      frame = requestAnimationFrame(tick);
+    }
+
+    function down(event) {
+      if (opened || reduced) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      startedAt = performance.now() - fill * HOLD_MS;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(tick);
+    }
+
+    function up() {
+      if (opened || reduced) return;
+      cancelAnimationFrame(frame);
+      const from = fill;
+      const t0 = performance.now();
+      (function sink(now) {
+        const value = from * (1 - Math.min(1, (now - t0) / 400));
+        paint(value);
+        if (value > 0) frame = requestAnimationFrame(sink);
+      })(t0);
+    }
+
+    const area = el('button', {
+      type: 'button',
+      class: 'tap-area',
+      id: 'btn-arrive',
+      'aria-label': 'Open today’s place',
+      onpointerdown: down,
+      onpointerup: up,
+      onpointercancel: up,
+      onpointerleave: up,
+      onclick: function () {
+        const now = performance.now();
+        if (reduced || now - lastTap < 350) open();
+        lastTap = now;
+      },
+      onkeydown: function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      },
+    });
+    area.addEventListener('contextmenu', function (event) {
+      event.preventDefault();
+    });
+
+    section = el('section', { class: 'screen arrive', style: '--fill: 0' }, [
+      picture,
+      el('div', { class: 'veil develop-veil' }),
+      copy,
+      area,
+    ]);
+    return section;
   }
 
   function todayScreen() {
@@ -867,16 +1016,24 @@
       },
     });
     const label = el('div', { class: 'keep-label', text: today.kept ? 'kept' : 'keep' });
+    keep.addEventListener('click', function () {
+      keep.classList.remove('rippling');
+      void keep.offsetWidth; // restart the ripple on every tap
+      keep.classList.add('rippling');
+      if (keep.getAttribute('aria-pressed') === 'true') {
+        sendLight(keep);
+      }
+    });
 
-    const section = el('section', { class: 'screen' }, [
+    const section = el('section', { class: 'screen' + (state.enter ? ' seamless' : '') }, [
       scene(experience.media, experience.id, experience.tags, state.reveal ? 'reveal' : null),
       el('div', { class: 'veil' }),
       el('div', { class: 'topbar' }, [el('span', { text: 'Today' }), el('span', { text: shortDate(today.day) })]),
       keep,
       label,
-      el('div', { class: 'today-copy', id: 'today-copy' }, [
+      el('div', { class: 'today-copy' + (state.enter ? ' enter' : ''), id: 'today-copy' }, [
         el('div', { class: 'kicker', text: placeLine(today.place) }),
-        el('h1', { class: 'display', id: 'today-title', text: experience.title }),
+        el('h1', { class: 'display', id: 'today-title' }, wordsOf(experience.title)),
         el('p', { class: 'quiet', text: experience.summary }),
         today.reason ? el('p', { class: 'whisper', id: 'today-reason', text: today.reason }) : null,
         el('button', {
@@ -891,6 +1048,7 @@
       ]),
       nav('today'),
     ]);
+    state.enter = false;
 
     // Swipe up to linger, the gesture the "read more ↑" points at.
     let startY = null;
@@ -1035,7 +1193,14 @@
       el('div', { class: 'weekdays', 'aria-hidden': 'true' }, ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(function (d) {
         return el('span', { text: d });
       })),
-      el('div', { class: 'quilt', id: 'quilt' }, cells),
+      el(
+        'div',
+        { class: 'quilt', id: 'quilt' },
+        cells.map(function (node, index) {
+          node.style.setProperty('--i', index);
+          return node;
+        }),
+      ),
       el('p', {
         class: 'legend',
         text: view.days.length + ' of ' + Math.min(elapsed, counted) + ' days · a dot means kept',
@@ -1053,12 +1218,13 @@
   function worldMap(places) {
     const land = window.WORLD_LAND_PATH || '';
     const pins = places
-      .map(function (place) {
+      .map(function (place, index) {
         const x = ((place.lng + 180) * 2).toFixed(1);
         const y = ((90 - place.lat) * 2).toFixed(1);
+        const order = ' style="--i: ' + index + '"';
         return (
-          '<circle class="pin-halo" cx="' + x + '" cy="' + y + '" r="12"/>' +
-          '<circle class="pin" cx="' + x + '" cy="' + y + '" r="4"/>'
+          '<circle class="pin-halo" cx="' + x + '" cy="' + y + '" r="12"' + order + '/>' +
+          '<circle class="pin" cx="' + x + '" cy="' + y + '" r="4"' + order + '/>'
         );
       })
       .join('');

@@ -211,10 +211,12 @@
       gradient(uid + 'h', ['rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(8,8,10,.55)']) +
       '</defs>' +
       '<rect width="' + W + '" height="' + H + '" fill="url(#' + uid + 's)"/>' +
-      '<circle cx="' + sunX.toFixed(1) + '" cy="' + sunY.toFixed(1) + '" r="170" fill="url(#' + uid + 'g)"/>' +
-      '<path d="' + far + '" fill="url(#' + uid + 'f)"/>' +
-      '<path d="' + near + '" fill="url(#' + uid + 'n)"/>' +
-      '<rect width="' + W + '" height="' + H + '" fill="url(#' + uid + 'h)"/>' +
+      // Each layer is named so the stylesheet can let the scene breathe: the
+      // sun swells slowly, the ridges drift against each other, the haze moves.
+      '<circle class="sun" cx="' + sunX.toFixed(1) + '" cy="' + sunY.toFixed(1) + '" r="170" fill="url(#' + uid + 'g)"/>' +
+      '<path class="far" d="' + far + '" fill="url(#' + uid + 'f)"/>' +
+      '<path class="near" d="' + near + '" fill="url(#' + uid + 'n)"/>' +
+      '<rect class="haze" width="' + W + '" height="' + H + '" fill="url(#' + uid + 'h)"/>' +
       '</svg>'
     );
   }

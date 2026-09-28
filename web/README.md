@@ -33,6 +33,28 @@ within strict honesty rules; see ADR-0012 in the backend repo.
 The colours follow the time of day: warmer in the morning, dimmer and cooler
 in the evening and at night.
 
+## Motion
+
+The app moves the way a slow morning does. Nothing bounces or slides in from
+the side; everything that moves is in `styles.css` under "Motion", and all of
+it switches off with the system's reduced-motion setting.
+
+- **Living scenes.** Photographs drift very slowly (48 s). Drawn landscapes
+  breathe: the sun swells, the ridges drift against each other, the haze moves.
+  On Open, the sun rises over the ridge.
+- **Hold to open.** On the envelope, the place is already on screen, dark and
+  out of focus. Press and hold for 1.2 s and it develops under the thumb; let
+  go early and it sinks back. Double-tap also opens; with reduced motion a
+  single tap does. A soft haptic tick marks the moment on phones that have one.
+- **Words arrive.** After the envelope, the title comes up one word at a time,
+  then the summary, then the reason.
+- **Keeping.** The circle ripples once, and a small light leaves it and lands
+  on the word *world*, which glows for a moment: a kept place is a light on
+  the map.
+- **Days and World.** Squares arrive in reading order; lights ignite one after
+  another and then pulse slowly.
+
+
 Places without a photograph yet are drawn as a landscape from their tags
 (`landscape.js`). An uploaded image replaces the drawing automatically.
 
